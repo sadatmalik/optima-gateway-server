@@ -1,6 +1,8 @@
 package com.sadatmalik.optima.gateway.filters;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.binary.Base64;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -50,6 +52,9 @@ public class TrackingFilter implements GlobalFilter {
                     correlationID);
         }
 
+        log.info("The authentication name from the token is : " +
+                getUsername(requestHeaders));
+
         return chain.filter(exchange);
     }
 
@@ -76,4 +81,42 @@ public class TrackingFilter implements GlobalFilter {
         return java.util.UUID.randomUUID().toString();
     }
 
+    /**
+     * Parses the token from the authorization HTTP header and pulls the preferred_username
+     * from the JWT.
+     *
+     * NB: the AUTH_TOKEN variable in FilterUtils is set to Authorization.
+     *
+     * @param requestHeaders
+     * @return
+     */
+    private String getUsername(HttpHeaders requestHeaders){
+        String username = "";
+        if (filterUtils.getAuthToken(requestHeaders)!=null){
+            String authToken = filterUtils.getAuthToken(requestHeaders)
+                    .replace("Bearer ","");
+            JSONObject jsonObj = decodeJWT(authToken);
+            try {
+                username = jsonObj.getString("preferred_username");
+            } catch (Exception e) {
+                log.debug(e.getMessage());
+            }
+        }
+        return username;
+    }
+
+    /**
+     * Uses Base64 encoding to parse the token, passing in the key that signs the token,
+     * and parses the JWT body into a JSON object to retrieve the preferred_username.
+     *
+     * @param JWTToken
+     * @return
+     */
+    private JSONObject decodeJWT(String JWTToken) {
+        String[] split_string = JWTToken.split("\\.");
+        String base64EncodedBody = split_string[1];
+        Base64 base64Url = new Base64(true);
+        String body = new String(base64Url.decode(base64EncodedBody));
+        return new JSONObject(body);
+    }
 }
