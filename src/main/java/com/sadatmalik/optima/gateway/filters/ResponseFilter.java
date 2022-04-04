@@ -1,5 +1,8 @@
 package com.sadatmalik.optima.gateway.filters;
 
+import brave.Span;
+import brave.Tracer;
+import brave.propagation.TraceContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -11,6 +14,8 @@ import reactor.core.publisher.Mono;
 /**
  * Ensures that all egress responses have the correlation id inserted in the http headers.
  *
+ * Also, responsible for adding the Spring Cloud Sleuth trace ID to egress headers.
+ *
  * @author sadatmalik
  */
 @Slf4j
@@ -18,7 +23,10 @@ import reactor.core.publisher.Mono;
 public class ResponseFilter {
 
     @Autowired
-    FilterUtils filterUtils;
+    private Tracer tracer;
+
+    @Autowired
+    private FilterUtils filterUtils;
 
     /**
      * Grabs the correlation ID that was passed in to the original HTTP request and injects it
@@ -33,10 +41,25 @@ public class ResponseFilter {
             return chain.filter(exchange).then(Mono.fromRunnable(() -> {
                 HttpHeaders requestHeaders = exchange.getRequest().getHeaders();
                 String correlationId = filterUtils.getCorrelationId(requestHeaders);
-                log.debug("Adding the correlation id to the outbound headers. {}", correlationId);
-                exchange.getResponse().getHeaders().add(FilterUtils.CORRELATION_ID, correlationId);
-                log.debug("Completing outgoing request for {}.", exchange.getRequest().getURI());
+                log.debug("Adding the correlation id to the outbound headers. {}",
+                        correlationId);
+                exchange.getResponse().getHeaders().add(FilterUtils.CORRELATION_ID,
+                        correlationId);
+
+                Span span = tracer.currentSpan();
+                if (span != null) {
+                    TraceContext ctx = span.context();
+                    String traceId = ctx.traceIdString();
+                    log.debug("Adding the correlation id to the outbound headers. {}",
+                            traceId);
+                    exchange.getResponse().getHeaders().add(FilterUtils.CORRELATION_ID,
+                            traceId);
+                }
+
+                log.debug("Completing outgoing request for {}.",
+                        exchange.getRequest().getURI());
             }));
         };
     }
+
 }
